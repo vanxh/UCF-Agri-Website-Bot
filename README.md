@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # 🌾 UCF Agri-Bot – WhatsApp AI Chatbot
 
 An intelligent WhatsApp chatbot named "Sam" for UCF Fertilizers that automates product information, shop locator, farming tips, and premium AI services like crop diagnosis and soil interpretation.
@@ -399,3 +400,7 @@ For support or queries:
 ---
 
 **Made with ❤️ for Indian Farmers 🌾**
+=======
+# UCF-Agri-Website-Bot
+Created website and bot for UCF Fertilizers to manage users using the bot, the bot contains script detection using hugging face ng ocr, once verified, user can use premium featues which includes crop detection by sending images and the bot detects issues in the crop, analyzing soil reports , sending pdfs, daily tips (cron job) opening QR from bill.
+>>>>>>> 842d79ffe53d2cf1fb8724cc14349b6a9643a843

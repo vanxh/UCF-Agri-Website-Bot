@@ -1,5 +1,5 @@
-# Use Node.js LTS version
-FROM node:18-alpine
+# Use Node.js LTS version (20+ required for Next.js)
+FROM node:20-alpine
 
 # Install dependencies for Puppeteer (required for whatsapp-web.js)
 RUN apk add --no-cache \

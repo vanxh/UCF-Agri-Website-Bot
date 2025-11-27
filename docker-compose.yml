@@ -5,8 +5,6 @@ services:
     build: .
     container_name: ucf-agri-bot
     restart: unless-stopped
-    ports:
-      - "3000:3000"
     environment:
       - NODE_ENV=production
       - SESSION_NAME=UCF_AGRIBOT

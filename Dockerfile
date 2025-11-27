@@ -38,6 +38,12 @@ EXPOSE 3000
 
 # Create a startup script to run both services
 RUN echo '#!/bin/sh' > /app/start.sh && \
+    echo '# Clean up stale Chromium lock files from previous runs' >> /app/start.sh && \
+    echo 'rm -f /app/.wwebjs_cache/*/SingletonLock 2>/dev/null || true' >> /app/start.sh && \
+    echo 'rm -f /app/.wwebjs_cache/*/SingletonCookie 2>/dev/null || true' >> /app/start.sh && \
+    echo 'rm -f /app/.wwebjs_cache/*/SingletonSocket 2>/dev/null || true' >> /app/start.sh && \
+    echo 'rm -rf /app/.wwebjs_cache/*/Singleton* 2>/dev/null || true' >> /app/start.sh && \
+    echo '# Start services' >> /app/start.sh && \
     echo 'npm run next-start &' >> /app/start.sh && \
     echo 'npm start' >> /app/start.sh && \
     chmod +x /app/start.sh

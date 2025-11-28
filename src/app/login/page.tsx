@@ -21,21 +21,28 @@ export default function LoginPage() {
         setError("");
 
         try {
+            console.log("[LOGIN PAGE] Sending request...");
             const res = await fetch("/api/auth/login", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ username, password }),
+                credentials: "include", // Important for cookies
             });
 
+            console.log("[LOGIN PAGE] Response status:", res.status);
+            const data = await res.json();
+            console.log("[LOGIN PAGE] Response data:", data);
+
             if (res.ok) {
+                console.log("[LOGIN PAGE] Success, redirecting...");
                 router.push("/");
                 router.refresh();
             } else {
-                const data = await res.json();
                 setError(data.error || "Invalid credentials");
             }
         } catch (err) {
-            setError("Something went wrong. Please try again.");
+            console.error("[LOGIN PAGE] Error:", err);
+            setError(`Something went wrong: ${err}`);
         } finally {
             setLoading(false);
         }

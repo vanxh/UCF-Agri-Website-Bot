@@ -5,24 +5,28 @@ services:
     build: .
     container_name: ucf-agri-bot
     restart: unless-stopped
-    ports:
-      - "3000:3000"
     environment:
       - NODE_ENV=production
       - SESSION_NAME=UCF_AGRIBOT
     env_file:
       - .env
     volumes:
-      # Persist WhatsApp session data
-      - ./.wwebjs_auth:/app/.wwebjs_auth
-      - ./.wwebjs_cache:/app/.wwebjs_cache
-      # Persist data files
-      - ./src/data:/app/src/data
-      # Persist temp files
-      - ./temp:/app/temp
+      # Persist WhatsApp session data (REQUIRED - contains auth tokens)
+      - wwebjs_auth:/app/.wwebjs_auth
+      - wwebjs_cache:/app/.wwebjs_cache
+      # Persist data files (users, receipts, products)
+      - app_data:/app/src/data
+      # Persist temp files (uploaded images)
+      - app_temp:/app/temp
     networks:
       - agri-bot-network
 
 networks:
   agri-bot-network:
     driver: bridge
+
+volumes:
+  wwebjs_auth:
+  wwebjs_cache:
+  app_data:
+  app_temp:

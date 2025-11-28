@@ -235,15 +235,17 @@ export default function RetailersPage() {
             </Dialog>
 
             <BulkImportDialog
-                entityName="retailers"
-                exampleCsv="name,full_name\nFarmbiz,FARMBIZ PVT LTD\nMega Save,MEGA SAVE"
-                exampleJson={JSON.stringify([
-                    { name: "Farmbiz", full_name: "FARMBIZ PVT LTD" },
-                    { name: "Mega Save", full_name: "MEGA SAVE" },
-                ], null, 2)}
                 isOpen={bulkImportOpen}
                 onClose={() => setBulkImportOpen(false)}
                 onImport={handleBulkImport}
+                entityName="Retailers"
+                exampleCsv={`name,full_name
+Farmbiz,FARMBIZ PVT LTD
+Mega Save,MEGA SAVE`}
+                exampleJson={`[
+  { "name": "Farmbiz", "full_name": "FARMBIZ PVT LTD" },
+  { "name": "Mega Save", "full_name": "MEGA SAVE" }
+]`}
             />
         </div>
     );

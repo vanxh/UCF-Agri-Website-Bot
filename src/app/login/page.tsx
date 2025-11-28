@@ -44,9 +44,14 @@ export default function LoginPage() {
             console.log("[LOGIN PAGE] Response data:", data);
 
             if (res.ok) {
-                console.log("[LOGIN PAGE] Success, redirecting...");
-                // Use window.location for full page reload to ensure cookie is read
+                console.log("[LOGIN PAGE] Success, waiting for cookie to be set...");
+                // Small delay to ensure cookie is saved before redirect
+                await new Promise(resolve => setTimeout(resolve, 100));
+                console.log("[LOGIN PAGE] Redirecting now...");
+                // Don't set loading to false - keep button disabled during redirect
                 window.location.href = "/";
+                // Never reaches here due to redirect
+                return;
             } else {
                 setError(data.error || "Invalid credentials");
             }
@@ -57,8 +62,7 @@ export default function LoginPage() {
             } else {
                 setError(`Connection error: ${err instanceof Error ? err.message : String(err)}`);
             }
-        } finally {
-            setLoading(false);
+            setLoading(false); // Only disable loading on error
         }
     };
 

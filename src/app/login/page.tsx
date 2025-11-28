@@ -30,6 +30,16 @@ export default function LoginPage() {
             });
 
             console.log("[LOGIN PAGE] Response status:", res.status);
+
+            // Check if response is JSON
+            const contentType = res.headers.get("content-type");
+            if (!contentType || !contentType.includes("application/json")) {
+                const text = await res.text();
+                console.error("[LOGIN PAGE] Non-JSON response:", text);
+                setError("Server error. Please try again or check if the server is running.");
+                return;
+            }
+
             const data = await res.json();
             console.log("[LOGIN PAGE] Response data:", data);
 
@@ -42,7 +52,11 @@ export default function LoginPage() {
             }
         } catch (err) {
             console.error("[LOGIN PAGE] Error:", err);
-            setError(`Something went wrong: ${err}`);
+            if (err instanceof SyntaxError) {
+                setError("Server error: Invalid response format. Please check if the server is running.");
+            } else {
+                setError(`Connection error: ${err instanceof Error ? err.message : String(err)}`);
+            }
         } finally {
             setLoading(false);
         }

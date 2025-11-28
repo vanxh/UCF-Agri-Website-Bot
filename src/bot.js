@@ -94,24 +94,18 @@ client.on('message', async (message) => {
 
     console.log(`\n📨 Message from ${phoneNumber}: ${messageBody.substring(0, 50)}...`);
 
-    // Check if user has activated the bot by typing "crop"
+    // Auto-activate bot for new users
     if (!activatedUsers.has(phoneNumber)) {
-      if (messageBody.toLowerCase() === 'crop') {
-        activatedUsers.add(phoneNumber);
-        console.log(`✅ Bot activated for user: ${phoneNumber}`);
+      activatedUsers.add(phoneNumber);
+      console.log(`✅ Bot activated for user: ${phoneNumber}`);
 
-        // Get or create user
-        const user = getUser(phoneNumber);
+      // Get or create user
+      const user = getUser(phoneNumber);
 
-        // Send activation message
-        await message.reply(`🌾 *UCF Agri-Bot Activated!*\n\nWelcome! I'm Sam, your agricultural assistant.\n\nMay I know your name?`);
-        userStates.set(phoneNumber, { state: 'awaiting_name' });
-        return;
-      } else {
-        // Ignore all messages until user types "crop"
-        console.log(`⚠️ User ${phoneNumber} has not activated bot yet. Ignoring message.`);
-        return;
-      }
+      // Send activation message
+      await message.reply(`🌾 *Welcome to UCF Agri-Bot!*\n\nHello! I'm Sam, your agricultural assistant.\n\nMay I know your name?`);
+      userStates.set(phoneNumber, { state: 'awaiting_name' });
+      return;
     }
 
     // Get or create user

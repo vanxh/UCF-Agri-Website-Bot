@@ -49,11 +49,14 @@ const client = new Client({
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   }
 });
-// Track user states
+// Track user states with timestamps for cleanup
 const userStates = new Map();
 
 // Track activated users (users who have typed "crop")
 const activatedUsers = new Set();
+
+// Keep-alive interval reference
+let keepAliveInterval = null;
 
 // QR Code generation
 client.on('qr', (qr) => {
@@ -66,6 +69,21 @@ client.on('ready', () => {
   console.log('✅ UCF Agri-Bot is ready!');
   console.log('🌾 Bot Name: Sam');
   console.log('📞 Waiting for messages...');
+
+  // Clear existing keep-alive interval if any
+  if (keepAliveInterval) {
+    clearInterval(keepAliveInterval);
+  }
+
+  // Start keep-alive mechanism (ping every 30 seconds)
+  keepAliveInterval = setInterval(async () => {
+    try {
+      const state = await client.getState();
+      console.log('💓 Keep-alive ping - State:', state);
+    } catch (error) {
+      console.error('❌ Keep-alive ping failed:', error.message);
+    }
+  }, 30000);
 
   // Initialize daily tips system
   initializeDailyTips(client);
@@ -80,9 +98,26 @@ client.on('auth_failure', (msg) => {
   console.error('❌ Authentication failed:', msg);
 });
 
-// Handle disconnection
+// Handle disconnection with auto-reconnect
 client.on('disconnected', (reason) => {
   console.log('⚠️ Client disconnected:', reason);
+  console.log('🔄 Attempting to reconnect in 5 seconds...');
+
+  // Clear keep-alive interval
+  if (keepAliveInterval) {
+    clearInterval(keepAliveInterval);
+    keepAliveInterval = null;
+  }
+
+  // Attempt reconnection after 5 seconds
+  setTimeout(() => {
+    console.log('🚀 Reinitializing client...');
+    client.initialize().catch(err => {
+      console.error('❌ Reconnection failed:', err);
+      console.log('🔄 Will retry in 10 seconds...');
+      setTimeout(() => client.initialize(), 10000);
+    });
+  }, 5000);
 });
 
 // Main message handler
@@ -104,8 +139,17 @@ client.on('message', async (message) => {
 
       // Send activation message
       await message.reply(`🌾 *Welcome to UCF Agri-Bot!*\n\nHello! I'm Sam, your agricultural assistant.\n\nMay I know your name?`);
-      userStates.set(phoneNumber, { state: 'awaiting_name' });
+      userStates.set(phoneNumber, {
+        state: 'awaiting_name',
+        lastActivity: Date.now()
+      });
       return;
+    }
+
+    // Update last activity timestamp
+    const currentState = userStates.get(phoneNumber);
+    if (currentState) {
+      currentState.lastActivity = Date.now();
     }
 
     // Get or create user
@@ -1305,13 +1349,60 @@ async function handleGeneralQuery(message, user, messageBody) {
   }
 }
 
+// Memory cleanup function - removes old user states
+function cleanupOldStates() {
+  const now = Date.now();
+  const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+  let cleanedCount = 0;
+
+  for (const [phoneNumber, state] of userStates.entries()) {
+    if (state.lastActivity && (now - state.lastActivity) > maxAge) {
+      userStates.delete(phoneNumber);
+      cleanedCount++;
+    }
+  }
+
+  if (cleanedCount > 0) {
+    console.log(`🧹 Cleaned up ${cleanedCount} old user state(s)`);
+  }
+
+  console.log(`📊 Active states: ${userStates.size}, Activated users: ${activatedUsers.size}`);
+}
+
+// Run cleanup every hour
+setInterval(cleanupOldStates, 60 * 60 * 1000);
+
+// Monitor connection state changes
+client.on('change_state', (state) => {
+  console.log('🔄 Connection state changed:', state);
+});
+
 // Initialize the client
 console.log('🚀 Starting UCF Agri-Bot...');
 client.initialize();
 
-// Handle process termination
-process.on('SIGINT', async () => {
-  console.log('\n⚠️ Shutting down bot...');
-  await client.destroy();
+// Graceful shutdown handler
+async function gracefulShutdown(signal) {
+  console.log(`\n⚠️ Received ${signal}, shutting down gracefully...`);
+
+  // Clear keep-alive interval
+  if (keepAliveInterval) {
+    clearInterval(keepAliveInterval);
+    console.log('✅ Keep-alive interval cleared');
+  }
+
+  // Destroy client
+  try {
+    await client.destroy();
+    console.log('✅ WhatsApp client destroyed successfully');
+  } catch (error) {
+    console.error('❌ Error destroying client:', error);
+  }
+
+  console.log('👋 Goodbye!');
   process.exit(0);
-});
+}
+
+// Handle process termination signals
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));

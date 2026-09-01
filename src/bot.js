@@ -42,6 +42,24 @@ const {
 } = require('./helpers/utils');
 
 /**
+ * Safely delete a directory with retry logic for Windows file locking
+ */
+function safeDeleteDirectory(dirPath) {
+  if (!fs.existsSync(dirPath)) return true;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      fs.rmSync(dirPath, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 });
+      return true;
+    } catch (e) {
+      // Short blocking delay before retry
+      const delayUntil = Date.now() + 300;
+      while (Date.now() < delayUntil) {}
+    }
+  }
+  return false;
+}
+
+/**
  * Clear WhatsApp cache and authentication directories
  * Used when cache becomes corrupted or outdated
  */
@@ -53,25 +71,21 @@ function clearWhatsAppCache() {
 
   let cleared = false;
 
-  // Clear auth directory
   if (fs.existsSync(authPath)) {
-    try {
-      fs.rmSync(authPath, { recursive: true, force: true });
+    if (safeDeleteDirectory(authPath)) {
       console.log('✅ Cleared authentication directory:', authPath);
       cleared = true;
-    } catch (error) {
-      console.error('❌ Error clearing auth directory:', error.message);
+    } else {
+      console.warn('⚠️ Could not fully remove auth directory (files may be locked)');
     }
   }
 
-  // Clear cache directory
   if (fs.existsSync(cachePath)) {
-    try {
-      fs.rmSync(cachePath, { recursive: true, force: true });
+    if (safeDeleteDirectory(cachePath)) {
       console.log('✅ Cleared cache directory:', cachePath);
       cleared = true;
-    } catch (error) {
-      console.error('❌ Error clearing cache directory:', error.message);
+    } else {
+      console.warn('⚠️ Could not fully remove cache directory (files may be locked)');
     }
   }
 
@@ -218,6 +232,7 @@ setInterval(() => {
 
 
 // QR Code generation
+// QR Code generation
 client.on('qr', async (qr) => {
   console.log('📱 Scan this QR code with WhatsApp:');
   qrcode.generate(qr, { small: true });
@@ -244,11 +259,13 @@ client.on('qr', async (qr) => {
     // Save timestamp metadata to verify QR regeneration
     const metadataPath = path.join(tempDir, 'qr_metadata.json');
     fs.writeFileSync(metadataPath, JSON.stringify({
+      status: 'qr_ready',
       generated_at: timestamp,
-      qr_hash: qr.substring(0, 20) + '...' // First 20 chars for verification
+      qr_hash: qr.substring(0, 20) + '...',
+      qr_raw: qr
     }, null, 2));
 
-    console.log('✅ QR code saved to:', qrImagePath);
+    console.log('✅ New QR code saved to:', qrImagePath);
     console.log('🕐 Generated at:', timestamp);
     console.log('🌐 Access QR code at: http://localhost:3000/qr');
   } catch (error) {
@@ -261,6 +278,17 @@ client.on('ready', async () => {
   console.log('✅ UCF Agri-Bot is ready!');
   console.log('🌾 Bot Name: Sam');
   console.log('📞 Waiting for messages...');
+
+  try {
+    const tempDir = path.join(__dirname, '../temp');
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+    const metadataPath = path.join(tempDir, 'qr_metadata.json');
+    fs.writeFileSync(metadataPath, JSON.stringify({
+      status: 'ready',
+      ready_at: new Date().toISOString(),
+      bot_name: 'Sam'
+    }, null, 2));
+  } catch (e) {}
 
   // Clear existing keep-alive interval if any
   if (keepAliveInterval) {
@@ -341,16 +369,36 @@ client.on('authenticated', () => {
   if (!isAuthenticated) {
     console.log('🔐 Authentication successful!');
     isAuthenticated = true;
+    try {
+      const tempDir = path.join(__dirname, '../temp');
+      if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+      const metadataPath = path.join(tempDir, 'qr_metadata.json');
+      fs.writeFileSync(metadataPath, JSON.stringify({
+        status: 'authenticated',
+        authenticated_at: new Date().toISOString()
+      }, null, 2));
+    } catch (e) {}
   }
 });
 
 client.on('auth_failure', (msg) => {
   console.error('❌ Authentication failed:', msg);
+  try {
+    const tempDir = path.join(__dirname, '../temp');
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+    const metadataPath = path.join(tempDir, 'qr_metadata.json');
+    fs.writeFileSync(metadataPath, JSON.stringify({
+      status: 'auth_failure',
+      message: String(msg),
+      failed_at: new Date().toISOString()
+    }, null, 2));
+  } catch (e) {}
 });
 
 // Handle disconnection with auto-reconnect and QR regeneration
 client.on('disconnected', (reason) => {
   console.log('⚠️ Client disconnected:', reason);
+  isAuthenticated = false;
 
   // Clear keep-alive interval
   if (keepAliveInterval) {
@@ -380,36 +428,40 @@ client.on('disconnected', (reason) => {
     try {
       await client.destroy();
       console.log('✅ Client destroyed');
+    } catch (err) {
+      console.log('⚠️ Client destruction notice:', err.message);
+    }
 
-      // Clear auth session directory
+    try {
+      // Clear auth session and cache directories safely
       const authPath = path.join(__dirname, '../.wwebjs_auth');
-      if (fs.existsSync(authPath)) {
-        fs.rmSync(authPath, { recursive: true, force: true });
-        console.log('🗑️ Cleared authentication session');
-      }
+      safeDeleteDirectory(authPath);
+      console.log('🗑️ Cleared authentication session');
 
-      // Clear cache directory for complete cleanup
       const cachePath = path.join(__dirname, '../.wwebjs_cache');
-      if (fs.existsSync(cachePath)) {
-        fs.rmSync(cachePath, { recursive: true, force: true });
-        console.log('🗑️ Cleared cache directory');
+      safeDeleteDirectory(cachePath);
+      console.log('🗑️ Cleared cache directory');
+
+      const tempDir = path.join(__dirname, '../temp');
+      const metadataPath = path.join(tempDir, 'qr_metadata.json');
+      if (fs.existsSync(tempDir)) {
+        fs.writeFileSync(metadataPath, JSON.stringify({
+          status: 'regenerating',
+          reason: String(reason),
+          disconnected_at: new Date().toISOString()
+        }, null, 2));
       }
 
-      // Re-initialize the client to generate new QR code
-      console.log('🔄 Re-initializing client...');
+      console.log('🔄 Re-initializing client to generate new QR code...');
       console.log('📱 A new QR code will be generated. Please scan it to reconnect.');
       console.log('🌐 Access QR code at: http://localhost:3000/qr');
 
-      // Exit with code 1 to trigger Docker restart
-      // Docker restart policy will restart the container and generate new QR
       process.exit(1);
-
     } catch (error) {
-      console.error('❌ Error during reconnection:', error);
-      console.log('ℹ️ Forcing restart to generate new QR code...');
-      process.exit(1); // Force restart even on error
+      console.error('❌ Error during reconnection cleanup:', error);
+      process.exit(1);
     }
-  }, 2000); // Wait 2 seconds before attempting reconnection
+  }, 2000);
 });
 
 // Main message handler

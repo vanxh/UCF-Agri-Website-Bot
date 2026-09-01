@@ -1,0 +1,13 @@
+{
+  "watch": ["src/bot.js", "src/helpers"],
+  "ignore": [
+    "temp/*",
+    ".wwebjs_auth/*",
+    ".wwebjs_cache/*",
+    "src/data/*",
+    "node_modules/*",
+    ".next/*",
+    "public/*"
+  ],
+  "ext": "js,json"
+}

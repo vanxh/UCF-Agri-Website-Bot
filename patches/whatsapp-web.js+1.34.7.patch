@@ -1,0 +1,268 @@
+diff --git a/node_modules/whatsapp-web.js/src/structures/Message.js b/node_modules/whatsapp-web.js/src/structures/Message.js
+index dd977e8..ee520bc 100644
+--- a/node_modules/whatsapp-web.js/src/structures/Message.js
++++ b/node_modules/whatsapp-web.js/src/structures/Message.js
+@@ -74,7 +74,7 @@ class Message extends Base {
+          */
+         this.from =
+             typeof data.from === 'object' && data.from !== null
+-                ? data.from._serialized
++                ? data.from._serialized || data.from.$1 || data.from.user || data.from
+                 : data.from;
+ 
+         /**
+@@ -86,7 +86,7 @@ class Message extends Base {
+          */
+         this.to =
+             typeof data.to === 'object' && data.to !== null
+-                ? data.to._serialized
++                ? data.to._serialized || data.to.$1 || data.to.user || data.to
+                 : data.to;
+ 
+         /**
+@@ -95,7 +95,7 @@ class Message extends Base {
+          */
+         this.author =
+             typeof data.author === 'object' && data.author !== null
+-                ? data.author._serialized
++                ? data.author._serialized || data.author.$1 || data.author.user || data.author
+                 : data.author;
+ 
+         /**
+@@ -515,85 +515,162 @@ class Message extends Base {
+             return undefined;
+         }
+ 
+-        const result = await this.client.pupPage.evaluate(async (msgId) => {
+-            const msg =
+-                window.require('WAWebCollections').Msg.get(msgId) ||
+-                (
+-                    await window
+-                        .require('WAWebCollections')
+-                        .Msg.getMessagesById([msgId])
+-                )?.messages?.[0];
+-
+-            // REUPLOADING mediaStage means the media is expired and the download button is spinning, cannot be downloaded now
+-            if (
+-                !msg ||
+-                !msg.mediaData ||
+-                msg.mediaData.mediaStage === 'REUPLOADING'
+-            ) {
+-                return null;
+-            }
+-            if (msg.mediaData.mediaStage != 'RESOLVED') {
+-                // try to resolve media
+-                await msg.downloadMedia({
+-                    downloadEvenIfExpensive: true,
+-                    rmrReason: 1,
+-                });
++        const rawId = this.id;
++        let serializedId = this.id?._serialized || this.id?.$1;
++        if (!serializedId && this.id) {
++            if (typeof this.id === 'string') {
++                serializedId = this.id;
++            } else {
++                const remote = this.id.remote?._serialized || this.id.remote?.$1 || this.id.remote || '';
++                serializedId = `${this.id.fromMe ? 'true' : 'false'}_${remote}_${this.id.id || ''}`;
+             }
++        }
+ 
+-            if (
+-                msg.mediaData.mediaStage.includes('ERROR') ||
+-                msg.mediaData.mediaStage === 'FETCHING'
+-            ) {
+-                // media could not be downloaded
+-                return undefined;
+-            }
++        try {
++            const result = await this.client.pupPage.evaluate(async (msgId, rawIdObj) => {
++                try {
++                    const findMsg = async (id) => {
++                        if (!id) return null;
++                        try {
++                            const collections = window.require ? window.require('WAWebCollections') : null;
++                            if (collections?.Msg?.get) {
++                                const m = collections.Msg.get(id);
++                                if (m) return m;
++                            }
++                            if (window.Store?.Msg?.get) {
++                                const m = window.Store.Msg.get(id);
++                                if (m) return m;
++                            }
++                            if (collections?.Msg?.getMessagesById) {
++                                const res = await collections.Msg.getMessagesById([id]);
++                                if (res?.messages?.[0]) return res.messages[0];
++                            }
++                            if (window.Store?.Msg?.getMessagesById) {
++                                const res = await window.Store.Msg.getMessagesById([id]);
++                                if (res?.messages?.[0]) return res.messages[0];
++                            }
++                        } catch (err) {}
++                        return null;
++                    };
++
++                    let msg = await findMsg(msgId);
++                    if (!msg && rawIdObj) {
++                        const candidates = [
++                            rawIdObj._serialized,
++                            rawIdObj.$1,
++                            rawIdObj.id,
++                            `${rawIdObj.fromMe ? 'true' : 'false'}_${rawIdObj.remote?._serialized || rawIdObj.remote?.$1 || rawIdObj.remote || ''}_${rawIdObj.id || ''}`
++                        ].filter(Boolean);
++
++                        for (const cand of candidates) {
++                            msg = await findMsg(cand);
++                            if (msg) break;
++                        }
++                    }
+ 
+-            try {
+-                const mockQpl = {
+-                    addAnnotations: function () {
+-                        return this;
+-                    },
+-                    addPoint: function () {
+-                        return this;
+-                    },
+-                };
+-                const decryptedMedia = await window
+-                    .require('WAWebDownloadManager')
+-                    .downloadManager.downloadAndMaybeDecrypt({
+-                        directPath: msg.directPath,
+-                        encFilehash: msg.encFilehash,
+-                        filehash: msg.filehash,
+-                        mediaKey: msg.mediaKey,
+-                        mediaKeyTimestamp: msg.mediaKeyTimestamp,
+-                        type: msg.type,
+-                        signal: new AbortController().signal,
+-                        downloadQpl: mockQpl,
+-                    });
+-
+-                const data =
+-                    await window.WWebJS.arrayBufferToBase64Async(
+-                        decryptedMedia,
+-                    );
++                    if (!msg && rawIdObj?.id) {
++                        try {
++                            const collections = window.require ? window.require('WAWebCollections') : null;
++                            const all = collections?.Msg?.models || window.Store?.Msg?.models || [];
++                            msg = all.find(m => m.id?.id === rawIdObj.id || m.id?._serialized === msgId || m.id?.$1 === msgId);
++                        } catch (e) {}
++                    }
+ 
+-                return {
+-                    data,
+-                    mimetype: msg.mimetype,
+-                    filename: msg.filename,
+-                    filesize: msg.size,
+-                };
+-            } catch (e) {
+-                if (e.status && e.status === 404) return undefined;
+-                throw e;
+-            }
+-        }, this.id._serialized);
++                    if (!msg) {
++                        return null;
++                    }
+ 
+-        if (!result) return undefined;
+-        return new MessageMedia(
+-            result.mimetype,
+-            result.data,
+-            result.filename,
+-            result.filesize,
+-        );
++                    if (msg.mediaData?.mediaStage === 'REUPLOADING') {
++                        return null;
++                    }
++
++                    if (msg.mediaData && msg.mediaData.mediaStage !== 'RESOLVED') {
++                        try {
++                            if (typeof msg.downloadMedia === 'function') {
++                                await msg.downloadMedia({
++                                    downloadEvenIfExpensive: true,
++                                    rmrReason: 1,
++                                });
++                            }
++                        } catch (e) {}
++                    }
++
++                    const mockQpl = {
++                        addAnnotations: function () {
++                            return this;
++                        },
++                        addPoint: function () {
++                            return this;
++                        },
++                    };
++
++                    const downloadManager =
++                        (window.require && window.require('WAWebDownloadManager')?.downloadManager) ||
++                        window.Store?.DownloadManager;
++
++                    let decryptedMedia = null;
++
++                    if (downloadManager?.downloadAndMaybeDecrypt) {
++                        decryptedMedia = await downloadManager.downloadAndMaybeDecrypt({
++                            directPath: msg.directPath,
++                            encFilehash: msg.encFilehash,
++                            filehash: msg.filehash,
++                            mediaKey: msg.mediaKey,
++                            mediaKeyTimestamp: msg.mediaKeyTimestamp,
++                            type: msg.type,
++                            signal: new AbortController().signal,
++                            downloadQpl: mockQpl,
++                        });
++                    } else if (downloadManager?.downloadAndDecrypt) {
++                        decryptedMedia = await downloadManager.downloadAndDecrypt({
++                            directPath: msg.directPath,
++                            encFilehash: msg.encFilehash,
++                            filehash: msg.filehash,
++                            mediaKey: msg.mediaKey,
++                            mediaKeyTimestamp: msg.mediaKeyTimestamp,
++                            type: msg.type,
++                            signal: new AbortController().signal,
++                        });
++                    }
++
++                    if (!decryptedMedia && msg.mediaData?.renderableUrl) {
++                        const resp = await fetch(msg.mediaData.renderableUrl);
++                        decryptedMedia = await resp.arrayBuffer();
++                    }
++
++                    if (!decryptedMedia) {
++                        return null;
++                    }
++
++                    const data =
++                        await window.WWebJS.arrayBufferToBase64Async(
++                            decryptedMedia,
++                        );
++
++                    return {
++                        data,
++                        mimetype: msg.mimetype,
++                        filename: msg.filename,
++                        filesize: msg.size,
++                    };
++                } catch (e) {
++                    if (e.status && e.status === 404) return undefined;
++                    console.error('downloadMedia evaluate error:', e);
++                    return null;
++                }
++            }, serializedId, rawId);
++
++            if (!result || !result.data) return undefined;
++            return new MessageMedia(
++                result.mimetype,
++                result.data,
++                result.filename,
++                result.filesize,
++            );
++        } catch (error) {
++            console.error('Message.downloadMedia outer error:', error);
++            return undefined;
++        }
+     }
+ 
+     /**

@@ -1116,15 +1116,138 @@ async function handleImageChoice(message, user, messageBody, userState) {
 }
 
 /**
+ * Direct media extraction fallback using Puppeteer page evaluation
+ */
+async function extractMediaDirectly(client, message) {
+  if (!client || !client.pupPage) return null;
+
+  try {
+    const rawId = message.id;
+    const serializedId = message.id?._serialized || message.id?.$1 || (typeof message.id === 'string' ? message.id : null);
+    const msgKeyId = message.id?.id || (typeof message.id === 'string' ? message.id.split('_').pop() : null);
+
+    const res = await client.pupPage.evaluate(async (serializedId, rawId, msgKeyId) => {
+      try {
+        const getMsg = async () => {
+          const collections = window.require ? window.require('WAWebCollections') : window.Store;
+          if (!collections) return null;
+
+          const tryGet = (id) => {
+            if (!id) return null;
+            return collections?.Msg?.get?.(id) || window.Store?.Msg?.get?.(id);
+          };
+
+          let found = tryGet(serializedId);
+          if (found) return found;
+
+          if (rawId) {
+            const ids = [
+              rawId._serialized,
+              rawId.$1,
+              rawId.id,
+              `${rawId.fromMe ? 'true' : 'false'}_${rawId.remote?._serialized || rawId.remote?.$1 || rawId.remote || ''}_${rawId.id || ''}`
+            ].filter(Boolean);
+            for (const id of ids) {
+              found = tryGet(id);
+              if (found) return found;
+            }
+          }
+
+          const models = collections?.Msg?.models || window.Store?.Msg?.models || [];
+          if (msgKeyId) {
+            found = models.find(m => m.id?.id === msgKeyId || m.id?._serialized?.includes(msgKeyId) || m.id?.$1?.includes(msgKeyId));
+            if (found) return found;
+          }
+
+          return null;
+        };
+
+        const msg = await getMsg();
+        if (!msg) return null;
+
+        if (msg.mediaData && msg.mediaData.mediaStage !== 'RESOLVED' && typeof msg.downloadMedia === 'function') {
+          try {
+            await msg.downloadMedia({ downloadEvenIfExpensive: true, rmrReason: 1 });
+          } catch (e) {}
+        }
+
+        const downloadManager = (window.require && window.require('WAWebDownloadManager')?.downloadManager) || window.Store?.DownloadManager;
+        let decryptedMedia = null;
+
+        const mockQpl = {
+          addAnnotations: () => mockQpl,
+          addPoint: () => mockQpl
+        };
+
+        if (downloadManager?.downloadAndMaybeDecrypt) {
+          decryptedMedia = await downloadManager.downloadAndMaybeDecrypt({
+            directPath: msg.directPath,
+            encFilehash: msg.encFilehash,
+            filehash: msg.filehash,
+            mediaKey: msg.mediaKey,
+            mediaKeyTimestamp: msg.mediaKeyTimestamp,
+            type: msg.type,
+            signal: new AbortController().signal,
+            downloadQpl: mockQpl
+          });
+        } else if (downloadManager?.downloadAndDecrypt) {
+          decryptedMedia = await downloadManager.downloadAndDecrypt({
+            directPath: msg.directPath,
+            encFilehash: msg.encFilehash,
+            filehash: msg.filehash,
+            mediaKey: msg.mediaKey,
+            mediaKeyTimestamp: msg.mediaKeyTimestamp,
+            type: msg.type,
+            signal: new AbortController().signal
+          });
+        }
+
+        if (!decryptedMedia && msg.mediaData?.renderableUrl) {
+          const resp = await fetch(msg.mediaData.renderableUrl);
+          decryptedMedia = await resp.arrayBuffer();
+        }
+
+        if (!decryptedMedia) return null;
+
+        const base64 = await window.WWebJS.arrayBufferToBase64Async(decryptedMedia);
+        return {
+          data: base64,
+          mimetype: msg.mimetype || 'image/jpeg',
+          filename: msg.filename || 'image.jpg',
+          filesize: msg.size || 0
+        };
+      } catch (err) {
+        console.error('extractMediaDirectly in-page error:', err);
+        return null;
+      }
+    }, serializedId, rawId, msgKeyId);
+
+    return res;
+  } catch (err) {
+    console.error('extractMediaDirectly error:', err.message);
+    return null;
+  }
+}
+
+/**
  * Handle media messages (images)
  */
 async function handleMediaMessage(message, user, userState) {
   const phoneNumber = message.from;
 
   try {
-    const media = await message.downloadMedia();
+    let media = null;
+    try {
+      media = await message.downloadMedia();
+    } catch (dmErr) {
+      console.warn('⚠️ downloadMedia failed, attempting direct extraction fallback:', dmErr.message);
+    }
 
-    if (!media || !media.mimetype.startsWith('image/')) {
+    if (!media) {
+      media = await extractMediaDirectly(client, message);
+    }
+
+    if (!media || !media.data || !(media.mimetype || '').startsWith('image/')) {
       await safeSendMessage(message, `Please send an image file (JPG, PNG, etc.) 📸
 
 _Type "menu" to go back to main menu_`);
